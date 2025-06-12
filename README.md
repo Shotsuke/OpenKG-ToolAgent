@@ -44,5 +44,7 @@ CONDA_EE_PY="/home/user_name/anaconda3/envs/deepke-ee/bin/"
 pip install uv
 
 cd DeepKE/mcp-tools
+uv venv
 source .venv/bin/activate
+uv add "mcp[cli]" httpx openai pyyaml
 ```
