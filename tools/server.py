@@ -9,7 +9,7 @@ from convert_to_tsv import input_to_raw_and_tsv
 
 load_dotenv()
 
-mcp = FastMCP("OpenKG")
+mcp = FastMCP("DeepKE")
 
 TaskType = Literal["standard", "few-shot", "multimodal", "documental"]  # 添加documental类型
 
