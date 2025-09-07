@@ -1,20 +1,16 @@
 import os
-import subprocess
-import yaml
-import json
 from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
-from typing import Literal, Optional
-from convert_to_tsv import input_to_raw_and_tsv
+from deepke import deepke_ner, deepke_re, deepke_ae, deepke_ee
+from mukg import mukg_ea, mukg_lp, mukg_et, check_task
 
 load_dotenv()
 
-mcp = FastMCP("DeepKE")
+mcp = FastMCP("OpenKG")
 
-TaskType = Literal["standard", "few-shot", "multimodal", "documental"]  # 添加documental类型
-
+# 注册工具
 @mcp.tool()
-def deepke_ner(task: TaskType, txt: str) -> str:
+def ner(task: str, txt: str) -> str:
     """
     使用 deepke 运行 NER 预测任务
     
@@ -25,46 +21,10 @@ def deepke_ner(task: TaskType, txt: str) -> str:
     返回:
     - 命令输出或错误信息
     """
-    if task != "standard":
-        return "[NER任务目前只支持standard模式]"
-    
-    base_path = os.path.expanduser(os.path.join(
-        os.getenv("DEEPKE_PATH"), "example/ner/standard"
-    ))
-    config_path = os.path.join(base_path, "conf/predict.yaml")
-    
-    try:
-        # 修改配置文件
-        with open(config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        config["text"] = txt
-        
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, allow_unicode=True)
-        
-        # 执行预测
-        command = f"cd {base_path} && {os.getenv('CONDA_PY')}python predict.py"
-        result = subprocess.run(
-            ["bash", "-c", command],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
-        return result.stdout
-        
-    except Exception as e:
-        return f"[运行失败] {str(e)}"
+    return deepke_ner(task, txt)
 
 @mcp.tool()
-def deepke_re(
-    task: TaskType,
-    txt: str,
-    head: str,
-    head_type: str,
-    tail: str,
-    tail_type: str
-) -> str:
+def re(task: str, txt: str, head: str, head_type: str, tail: str, tail_type: str) -> str:
     """
     使用 deepke 运行关系抽取(RE)预测任务
     
@@ -79,40 +39,10 @@ def deepke_re(
     返回:
     - 命令输出或错误信息
     """
-    if task != "standard":
-        return "[RE任务目前只支持standard模式]"
-    
-    base_path = os.path.expanduser(os.path.join(
-        os.getenv("DEEPKE_PATH"), "example/re/standard"
-    ))
-    
-    try:
-        # 构建输入文本格式：句子 + 实体信息
-        input_text = f"n\n{txt}\n{head}\n{head_type}\n{tail}\n{tail_type}\n"
-        
-        # 执行预测（通过标准输入传递）
-        command = f"cd {base_path} && {os.getenv('CONDA_PY')}python predict.py"
-        process = subprocess.Popen(
-            ["bash", "-c", command],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        stdout, stderr = process.communicate(input=input_text)
-        
-        return stdout if process.returncode == 0 else f"[运行失败]\n{stderr}"
-        
-    except Exception as e:
-        return f"[运行异常] {str(e)}"
-    
+    return deepke_re(task, txt, head, head_type, tail, tail_type)
+
 @mcp.tool()
-def deepke_ae(
-    txt: str,
-    entity: str,
-    attribute_value: str,
-    task: TaskType = 'standard'
-) -> str:
+def ae(txt: str, entity: str, attribute_value: str, task: str = 'standard') -> str:
     """
     使用 deepke 运行属性抽取(AE)预测任务
     
@@ -124,33 +54,10 @@ def deepke_ae(
     返回:
     - 命令输出或错误信息
     """
-    
-    base_path = os.path.expanduser(os.path.join(
-        os.getenv("DEEPKE_PATH"), "example/ae/standard"
-    ))
-    
-    try:
-        # 构建输入文本格式
-        input_text = f"n\n{txt}\n{entity}\n{attribute_value}\n"
-        
-        # 执行预测（通过标准输入传递）
-        command = f"cd {base_path} && {os.getenv('CONDA_PY')}python predict.py"
-        process = subprocess.Popen(
-            ["bash", "-c", command],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        stdout, stderr = process.communicate(input=input_text)
-        
-        return stdout if process.returncode == 0 else f"[运行失败]\n{stderr}"
-        
-    except Exception as e:
-        return f"[运行异常] {str(e)}"
-    
+    return deepke_ae(txt, entity, attribute_value, task)
+
 @mcp.tool()
-def deepke_ee(txt: str) -> str:
+def ee(txt: str) -> str:
     """
     使用 deepke 运行事件抽取 EE 预测任务
     
@@ -160,94 +67,180 @@ def deepke_ee(txt: str) -> str:
     返回:
     - 命令输出或错误信息
     """
+    return deepke_ee(txt)
+
+@mcp.tool()
+def ea_mtranse(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> str:
+    """
+    使用 muKG 库中整合的 MTransE 模型来运行实体对齐 ea 任务 
+
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 OpenEA_dataset_v1.1/EN_FR_15K_V1/ )
+
+    返回:
+    - 命令输出或错误信息
+    """
     
-    base_path = os.path.expanduser(os.path.join(
-        os.getenv("DEEPKE_PATH"), "example/ee/standard"
-    ))
-    trigger_eval_path = os.path.join(base_path, "exp/DuEE/trigger/bert-base-chinese/eval_pred.json")
-    trigger_result_path = os.path.join(base_path, "exp/DuEE/trigger/bert-base-chinese/eval_results.txt")
-    role_eval_path = os.path.join(base_path, "exp/DuEE/role/bert-base-chinese/eval_pred.json")
-    role_result_path = os.path.join(base_path, "exp/DuEE/role/bert-base-chinese/eval_results.txt")
-    train_config_path = os.path.join(base_path, "conf/train.yaml")
+    if not data or data.strip() == "":
+        data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/"
 
-    # 转换输入为测试文件
-    input_to_raw_and_tsv(txt, os.path.join(base_path, "data/DuEE/raw/duee_dev.json"), 
-                                os.path.join(base_path, "data/DuEE/role/dev.tsv"), 
-                                os.path.join(base_path, "data/DuEE/trigger/dev.tsv"))
+    return mukg_ea("MTransE", train, data)
+
+@mcp.tool()
+def ea_gcnalign(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> str:
+    """
+    使用 muKG 库中整合的 GCN-Align 模型来运行实体对齐 ea 任务 
+
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 OpenEA_dataset_v1.1/EN_FR_15K_V1/)
+
+    返回:
+    - 命令输出或错误信息
+    """
     
-    try:
-        # 修改配置文件
-        with open(train_config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        config["task_name"] = "trigger"
-        
-        with open(train_config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, allow_unicode=True)
-        
-        # 执行trigger预测
-        command = f"cd {base_path} && {os.getenv('CONDA_EE_PY')}python run.py"
-        subprocess.run(
-            ["bash", "-c", command],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
+    if not data or data.strip() == "":
+        data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/"
 
-        # 修改配置文件
-        with open(train_config_path, "r", encoding="utf-8") as f:
-            config = yaml.safe_load(f)
-        config["task_name"] = "role"
-        
-        with open(train_config_path, "w", encoding="utf-8") as f:
-            yaml.safe_dump(config, f, allow_unicode=True)
+    return mukg_ea("gcnalign", train, data)
 
-        # 训练一个事件角色抽取的模型
-        command = f"cd {base_path} && {os.getenv('CONDA_EE_PY')}python run.py"
-        subprocess.run(
-            ["bash", "-c", command],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
+@mcp.tool()
+def ea_bootea(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> str:
+    """
+    使用 muKG 库中整合的 BootEA 模型来运行实体对齐 ea 任务 
 
-        # 执行论元预测
-        command = f"cd {base_path} && {os.getenv('CONDA_EE_PY')}python predict.py"
-        subprocess.run(
-            ["bash", "-c", command],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=True,
-        )
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 OpenEA_dataset_v1.1/EN_FR_15K_V1/ )
 
-        # 读取结果文件
-        with open(trigger_eval_path, "r", encoding="utf-8") as f:
-            trigger_data = f.read()
-        with open(trigger_result_path, "r", encoding="utf-8") as f:
-            trigger_result = f.read()
-        with open(role_eval_path, "r", encoding="utf-8") as f:
-            role_data = f.read()
-        with open(role_result_path, "r", encoding="utf-8") as f:
-            role_result = f.read()
+    返回:
+    - 命令输出或错误信息
+    """
+    
+    if not data or data.strip() == "":
+        data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/ "
 
-        result = (
-            "请核对结果，根据分隔一一确定预测内对应原句位置的内容，B，I，O分别代表起始，中间和无关字。\n"
-            "[触发词预测结果]\n"
-            f"{trigger_result.strip()}\n\n"
-            "[触发词预测内容]\n"
-            f"{trigger_data.strip()}\n\n"
-            "[论元预测结果]\n"
-            f"{role_result.strip()}\n\n"
-            "[论元预测内容]\n"
-            f"{role_data.strip()}"
-        )
+    return mukg_ea("bootea", train, data)
 
-        return result
+@mcp.tool()
+def ea_rsn4ea(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> str:
+    """
+    使用 muKG 库中整合的 RSN4EA 模型来运行实体对齐 ea 任务 
 
-    except Exception as e:
-        return f"[运行失败] {str(e)}"
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 OpenEA_dataset_v1.1/EN_FR_15K_V1/ )
+
+    返回:
+    - 命令输出或错误信息
+    """
+    
+    if not data or data.strip() == "":
+        data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/ "
+
+    return mukg_ea("rsn4ea", train, data)
+
+@mcp.tool()
+def lp_transe(train: bool, data: str = "FB15K") -> str:
+    """
+    使用 muKG 库中整合的 TransE 模型运行链接预测 lp 任务 
+
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 FB15K )
+
+    返回:
+    - 命令输出或错误信息
+    """
+    
+    if not data or data.strip() == "":
+        data = "FB15K"   
+
+    return mukg_lp("transe", train, data)
+
+@mcp.tool()
+def lp_rotate(train: bool, data: str = "FB15K") -> str:
+    """
+    使用 muKG 库中整合的 RotatE 模型运行链接预测 lp 任务 
+
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 FB15K )
+
+    返回:
+    - 命令输出或错误信息
+    """
+    
+    if not data or data.strip() == "":
+        data = "FB15K"   
+
+    return mukg_lp("rotate", train, data)
+
+@mcp.tool()
+def lp_conve(train: bool, data: str = "FB15K") -> str:
+    """
+    使用 muKG 库中整合的 ConvE 模型运行链接预测 lp 任务 
+
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 FB15K )
+
+    返回:
+    - 命令输出或错误信息
+    """
+    
+    if not data or data.strip() == "":
+        data = "FB15K"   
+
+    return mukg_lp("conve", train, data)
+
+@mcp.tool()
+def lp_tucker(train: bool, data: str = "FB15K") -> str:
+    """
+    使用 muKG 库中整合的 TuckER 模型运行链接预测 lp 任务 
+
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 FB15K )
+
+    返回:
+    - 命令输出或错误信息
+    """
+    
+    if not data or data.strip() == "":
+        data = "FB15K"   
+
+    return mukg_lp("tucker", train, data)
+
+@mcp.tool()
+def et_transe_et(train: bool, data: str = "FB15K_type") -> str:
+    """
+    使用 muKG 库中整合的 TransE_ET 模型运行实体类型 et 任务 
+
+    参数:
+    - train: 设为 True 时执行训练 + 测试，设为 False 时跳过训练
+    - data: 数据集选择(默认 FB15K_type )
+
+    返回:
+    - 命令输出或错误信息
+    """
+    
+    if not data or data.strip() == "":
+        data = "FB15K_type"   
+
+    return mukg_et("transe", train, data)
+
+@mcp.tool()
+def mukg_check(task_id: str) -> str:
+    """
+    检查使用 muKG 进行训练、测试的模型是否完成
+
+    参数：
+    - task_id: ID 值用于查询任务。
+    """
+    return check_task(task_id)
+
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

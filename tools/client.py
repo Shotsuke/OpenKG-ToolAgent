@@ -9,46 +9,50 @@ from dotenv import load_dotenv
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Prompt
+
+console = Console()
 load_dotenv()
 
 class MCPClient:
     def __init__(self):
         """初始化MCP客户端"""
         self.exit_stack = AsyncExitStack()
-        self.opanai_api_key = os.getenv("DASHSCOPE_API_KEY") # 调用模型的api_key
-        self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1" 
-        self.model = "qwen3-235b-a22b"
+        self.opanai_api_key = os.getenv("DASHSCOPE_API_KEY")
+        self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.model = "qwen3-30b-a3b-instruct-2507"
         self.client = OpenAI(api_key=self.opanai_api_key, base_url=self.base_url)
-        self.session: Optional[ClientSession] = None # Optional提醒用户该属性是可选的，可能为None
-        self.exit_stack = AsyncExitStack() # 用来存储和清楚对话中上下文的，提高异步资源利用率
+        self.session: Optional[ClientSession] = None
+        self.exit_stack = AsyncExitStack()
 
     async def connect_to_server(self, server_script_path):
-        """连接到MCP服务器并列出MCP服务器的可用工具函数"""
+        """连接到MCP服务器并列出可用工具"""
         server_params = StdioServerParameters(
             command="python",
             args=[server_script_path],
             env=None
-        ) # 设置启动服务器的参数, python server.py
-
-        # 启动MCP服务器并建立通信
+        )
         stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
         self.stdio, self.write = stdio_transport
         self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
 
         await self.session.initialize()
-
-        # List available tools
-        # MCP官网原始写法
         response = await self.session.list_tools()
         tools = response.tools
-        # langchain写法
-        # tools = await load_mcp_tools(self.session)
-        
-        print("\nConnected to server with tools:", [tool.name for tool in tools])#打印服务端可用的工具
-  
-    async def process_query(self, query:str)->str:
-        """使用大模型处理查询并调用MCP Server可用的MCP工具"""
-        messages = [{"role":"user", "content":query}]
+
+        console.print(
+            Panel.fit(
+                f"[bold green]✅ 成功连接到MCP服务器[/bold green]\n可用工具: [cyan]{[tool.name for tool in tools]}[/cyan]",
+                title="[MCP Client]",
+                border_style="green"
+            )
+        )
+
+    async def process_query(self, query: str) -> str:
+        """使用大模型处理查询并调用MCP工具"""
+        messages = [{"role": "user", "content": query}]
         response = await self.session.list_tools()
 
         available_tools = [{
@@ -67,54 +71,80 @@ class MCPClient:
             extra_body={"enable_thinking": False}
         )
 
-        # 处理返回内容
-        # print("\n[Debug] Raw response:", response)
         content = response.choices[0]
 
         while content.finish_reason == "tool_calls" or content.message.function_call is not None:
-            # 返回结果是使用工具的建议，就解析并调用工具
             tool_call = content.message.tool_calls[0]
             tool_name = tool_call.function.name
             tool_args = json.loads(tool_call.function.arguments)
-            # 执行工具
+
+            console.print(
+                Panel.fit(
+                    f"[bold yellow]工具调用:[/bold yellow] [cyan]{tool_name}[/cyan]\n"
+                    f"[bold]参数:[/bold] {json.dumps(tool_args, ensure_ascii=False, indent=2)}",
+                    title="[LLM → MCP Tool]",
+                    border_style="yellow"
+                )
+            )
+
             result = await self.session.call_tool(tool_name, tool_args)
-            print(f"\n\n[Calling tool {tool_name} with args {tool_args}]\n\n")
-            # print(f"函数返回：\n{result.content[0].text}")
-            # 将模型返回的调用工具的对话记录保存在messages中
+
+            console.print(
+                Panel.fit(
+                    f"{result.content[0].text}",
+                    title=f"[返回结果] {tool_name}",
+                    border_style="blue"
+                )
+            )
+
             messages.append(content.message.model_dump())
             messages.append({
                 "role": "tool",
                 "content": result.content[0].text,
                 "tool_call_id": tool_call.id,
             })
-            # 将上面的结果返回给大模型用于生产最终结果
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 extra_body={"enable_thinking": False}
             )
-
-            # print("\n[Debug] Raw response:", response)
             content = response.choices[0]
-            # print("\n[Debug] Final response content:", content.message.content)
 
         return content.message.content
-  
+
     async def chat_loop(self):
         """运行交互式聊天"""
-        print("\n MCP客户端已启动！输入quit退出")
+        console.print(
+            Panel.fit(
+                "MCP客户端已启动！输入 [bold red]quit[/bold red] 退出",
+                title="[欢迎]",
+                border_style="magenta"
+            )
+        )
 
         while True:
             try:
-                query = input("\n用户:").strip()
+                query = Prompt.ask("[bold cyan]用户[/bold cyan]")
                 if query.lower() == 'quit':
                     break
                 response = await self.process_query(query)
-                print(f"\nLLM Agent: {response}")
+                console.print(
+                    Panel.fit(
+                        f"{response}",
+                        title="[LLM Agent]",
+                        border_style="cyan"
+                    )
+                )
             except Exception as e:
-                print(f"发生错误: {str(e)}")
+                console.print(
+                    Panel.fit(
+                        f"发生错误: {str(e)}",
+                        title="[Error]",
+                        border_style="red"
+                    )
+                )
 
     async def clean(self):
         """清理资源"""
         await self.exit_stack.aclose()
-
