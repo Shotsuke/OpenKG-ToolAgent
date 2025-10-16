@@ -1,153 +1,19 @@
-# import asyncio
-# import json
-# import os
-# from typing import Optional
-# from contextlib import AsyncExitStack
-# from openai import OpenAI
-# from dotenv import load_dotenv
+"""MCPClient 模块：异步大模型客户端与工具调用控制器。
 
-# from mcp import ClientSession, StdioServerParameters
-# from mcp.client.stdio import stdio_client
+该模块实现了一个异步 MCP (Model Context Protocol) 客户端，
+能够连接到自定义 MCP 工具服务器，并使用大模型（如 Qwen 系列）
+进行自然语言处理、自动工具调用与流式推理输出。
 
-# from rich.console import Console
-# from rich.panel import Panel
-# from rich.prompt import Prompt
+主要功能：
+    - 自动连接 MCP 工具服务器并列出可用工具；
+    - 通过 LLM (Qwen) 流式推理生成响应；
+    - 支持 `parallel_tool_calls` 并行工具调用；
+    - 自动记录 reasoning（思考过程）与工具调用链；
+    - 提供交互式命令行聊天界面。
 
-# console = Console()
-# load_dotenv()
-
-# class MCPClient:
-#     def __init__(self):
-#         """初始化MCP客户端"""
-#         self.exit_stack = AsyncExitStack()
-#         self.opanai_api_key = os.getenv("DASHSCOPE_API_KEY")
-#         self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-#         self.model = "qwen3-30b-a3b-instruct-2507"
-#         self.client = OpenAI(api_key=self.opanai_api_key, base_url=self.base_url)
-#         self.session: Optional[ClientSession] = None
-#         self.exit_stack = AsyncExitStack()
-
-#     async def connect_to_server(self, server_script_path):
-#         """连接到MCP服务器并列出可用工具"""
-#         server_params = StdioServerParameters(
-#             command="python",
-#             args=[server_script_path],
-#             env=None
-#         )
-#         stdio_transport = await self.exit_stack.enter_async_context(stdio_client(server_params))
-#         self.stdio, self.write = stdio_transport
-#         self.session = await self.exit_stack.enter_async_context(ClientSession(self.stdio, self.write))
-
-#         await self.session.initialize()
-#         response = await self.session.list_tools()
-#         tools = response.tools
-
-#         console.print(
-#             Panel.fit(
-#                 f"[bold green]✅ 成功连接到MCP服务器[/bold green]\n可用工具: [cyan]{[tool.name for tool in tools]}[/cyan]",
-#                 title="[MCP Client]",
-#                 border_style="green"
-#             )
-#         )
-
-#     async def process_query(self, query: str) -> str:
-#         """使用大模型处理查询并调用MCP工具"""
-#         messages = [{"role": "user", "content": query}]
-#         response = await self.session.list_tools()
-
-#         available_tools = [{
-#             "type": "function",
-#             "function": {
-#                 "name": tool.name,
-#                 "description": tool.description,
-#                 "input_schema": tool.inputSchema
-#             }
-#         } for tool in response.tools]
-
-#         response = self.client.chat.completions.create(
-#             model=self.model,
-#             messages=messages,
-#             tools=available_tools,
-#             extra_body={"enable_thinking": False}
-#         )
-
-#         content = response.choices[0]
-
-#         while content.finish_reason == "tool_calls" or content.message.function_call is not None:
-#             tool_call = content.message.tool_calls[0]
-#             tool_name = tool_call.function.name
-#             tool_args = json.loads(tool_call.function.arguments)
-
-#             console.print(
-#                 Panel.fit(
-#                     f"[bold yellow]工具调用:[/bold yellow] [cyan]{tool_name}[/cyan]\n"
-#                     f"[bold]参数:[/bold] {json.dumps(tool_args, ensure_ascii=False, indent=2)}",
-#                     title="[LLM → MCP Tool]",
-#                     border_style="yellow"
-#                 )
-#             )
-
-#             result = await self.session.call_tool(tool_name, tool_args)
-
-#             console.print(
-#                 Panel.fit(
-#                     f"{result.content[0].text}",
-#                     title=f"[返回结果] {tool_name}",
-#                     border_style="blue"
-#                 )
-#             )
-
-#             messages.append(content.message.model_dump())
-#             messages.append({
-#                 "role": "tool",
-#                 "content": result.content[0].text,
-#                 "tool_call_id": tool_call.id,
-#             })
-
-#             response = self.client.chat.completions.create(
-#                 model=self.model,
-#                 messages=messages,
-#                 extra_body={"enable_thinking": False}
-#             )
-#             content = response.choices[0]
-
-#         return content.message.content
-
-#     async def chat_loop(self):
-#         """运行交互式聊天"""
-#         console.print(
-#             Panel.fit(
-#                 "MCP客户端已启动！输入 [bold red]quit[/bold red] 退出",
-#                 title="[欢迎]",
-#                 border_style="magenta"
-#             )
-#         )
-
-#         while True:
-#             try:
-#                 query = Prompt.ask("[bold cyan]用户[/bold cyan]")
-#                 if query.lower() == 'quit':
-#                     break
-#                 response = await self.process_query(query)
-#                 console.print(
-#                     Panel.fit(
-#                         f"{response}",
-#                         title="[LLM Agent]",
-#                         border_style="cyan"
-#                     )
-#                 )
-#             except Exception as e:
-#                 console.print(
-#                     Panel.fit(
-#                         f"发生错误: {str(e)}",
-#                         title="[Error]",
-#                         border_style="red"
-#                     )
-#                 )
-
-#     async def clean(self):
-#         """清理资源"""
-#         await self.exit_stack.aclose()
+环境变量要求：
+    - DASHSCOPE_API_KEY: 阿里 DashScope 平台 API Key。
+"""
 
 import asyncio
 import json
@@ -167,9 +33,24 @@ from rich.prompt import Prompt
 console = Console()
 load_dotenv()
 
+
 class MCPClient:
+    """异步 MCP 客户端类。
+
+    提供连接 MCP 工具服务器、执行大模型推理、调用工具函数、
+    并以流式形式输出 reasoning 与最终回答。
+
+    Attributes:
+        exit_stack (AsyncExitStack): 异步上下文堆栈，用于资源清理。
+        opanai_api_key (str): DashScope 平台 API Key。
+        base_url (str): DashScope 兼容 OpenAI SDK 的 API 地址。
+        model (str): 使用的模型名称（默认为 Qwen Plus 2025）。
+        client (OpenAI): OpenAI 客户端对象，用于发送请求。
+        session (Optional[ClientSession]): 当前 MCP 客户端会话对象。
+    """
+
     def __init__(self):
-        """初始化MCP客户端"""
+        """初始化 MCP 客户端。"""
         self.exit_stack = AsyncExitStack()
         self.opanai_api_key = os.getenv("DASHSCOPE_API_KEY")
         self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -178,8 +59,15 @@ class MCPClient:
         self.session: Optional[ClientSession] = None
         self.exit_stack = AsyncExitStack()
 
-    async def connect_to_server(self, server_script_path):
-        """连接到MCP服务器并列出可用工具"""
+    async def connect_to_server(self, server_script_path: str):
+        """连接到 MCP 服务器并列出可用工具。
+
+        Args:
+            server_script_path (str): MCP 工具服务器脚本路径。
+
+        Raises:
+            Exception: 当无法连接或初始化 MCP 会话时触发。
+        """
         server_params = StdioServerParameters(
             command="python",
             args=[server_script_path],
@@ -202,7 +90,19 @@ class MCPClient:
             console.print("[dim]（无可用工具）[/dim]")
 
     async def process_query(self, query: str) -> str:
-        """使用大模型处理查询并调用MCP工具"""
+        """使用大模型处理查询并自动调用 MCP 工具。
+
+        Args:
+            query (str): 用户输入的自然语言查询。
+
+        Returns:
+            str: 模型的最终自然语言回复。
+
+        Notes:
+            - 本函数在推理阶段会实时输出「思考过程」与「回复内容」。
+            - 当检测到模型生成的 tool_calls 时，会自动调用 MCP 工具。
+            - 工具返回结果将写回消息上下文，用于下一轮模型推理。
+        """
         messages = [
             {
                 "role": "system",
@@ -215,13 +115,10 @@ class MCPClient:
                 这份工具调用将严格按照时间顺序来记录，方便你分析前后顺序。
                 请以友好的语气回答问题。""",
             },
-            {
-                "role": "user", 
-                "content": query
-            }
+            {"role": "user", "content": query}
         ]
-        response = await self.session.list_tools()
 
+        response = await self.session.list_tools()
         available_tools = [{
             "type": "function",
             "function": {
@@ -231,20 +128,9 @@ class MCPClient:
             }
         } for tool in response.tools]
 
-        stream_response = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            tools=available_tools,
-            extra_body={"enable_thinking": True},
-            parallel_tool_calls=True,
-            stream = True
-        )
-        
         answer_content = ""
 
-        # 回复为空，要么还没进行回答，要么还在请求调用工具。得到回复后即可返回
         while not answer_content:
-
             console.print("\n[bold cyan]==== 思考过程 ====[/bold cyan]")
             reasoning_content = ""
             is_answering = False
@@ -256,53 +142,48 @@ class MCPClient:
                 tools=available_tools,
                 extra_body={"enable_thinking": True},
                 parallel_tool_calls=True,
-                stream = True
+                stream=True
             )
 
             for chunk in stream_response:
                 if not chunk.choices:
                     console.print(f"\n[dim]Usage: {chunk.usage}[/dim]")
-                    
+                    continue
+
                 delta = chunk.choices[0].delta
-                # print(delta)
-                # Reasoning
+
+                # 输出模型思考过程
                 if hasattr(delta, 'reasoning_content') and delta.reasoning_content is not None:
                     reasoning_content += delta.reasoning_content
-                    print(delta.reasoning_content,end="",flush=True) 
+                    print(delta.reasoning_content, end="", flush=True)
 
+                # 输出最终回答与工具调用信息
                 else:
-                    if not is_answering:  # 首次进入回复阶段时打印标题
+                    if not is_answering:
                         is_answering = True
                         console.print("\n[bold cyan]==== 回复内容 ====[/bold cyan]")
+
                     if delta.content is not None:
                         answer_content += delta.content
-                        print(delta.content,end="",flush=True)  # 流式输出回复内容
+                        print(delta.content, end="", flush=True)
 
                     if delta.tool_calls is not None:
                         for tool_call in delta.tool_calls:
-                            index = tool_call.index  # 工具调用索引，用于并行调用
-                            
-                            # 动态扩展工具信息存储列表
+                            index = tool_call.index
                             while len(tool_info) <= index:
                                 tool_info.append({})
-                            
-                            # 收集工具调用ID（用于后续函数调用）
+
                             if tool_call.id:
                                 tool_info[index]['id'] = tool_info[index].get('id', '') + tool_call.id
-                            
-                            # 收集函数名称（用于后续路由到具体函数）
                             if tool_call.function and tool_call.function.name:
                                 tool_info[index]['name'] = tool_info[index].get('name', '') + tool_call.function.name
-                            
-                            # 收集函数参数（JSON字符串格式，需要后续解析）
                             if tool_call.function and tool_call.function.arguments:
                                 tool_info[index]['arguments'] = tool_info[index].get('arguments', '') + tool_call.function.arguments
 
-            # print(f"\n"+"="*19+"工具调用信息"+"="*19)
+            # 执行工具调用
             if tool_info:
                 console.print("\n[bold cyan]==== 工具调用 ====[/bold cyan]")
                 for tool in tool_info:
-                    # tool_id = tool['id']
                     tool_name = tool['name']
                     tool_args = json.loads(tool['arguments']) if tool['arguments'] else {}
 
@@ -313,8 +194,8 @@ class MCPClient:
                     console.print(f"[bold yellow]工具名称:[/bold yellow] {tool_name}")
                     console.print(f"[bold magenta]调用参数:[/bold magenta] {json.dumps(tool_args, ensure_ascii=False, indent=2)}")
                     console.print(f"[bold green]返回结果:[/bold green] {tool_result}\n")
-                    
-                    # 添加工具调用到消息
+
+                    # 将调用及结果添加回对话上下文
                     messages.append({
                         "role": "assistant",
                         "content": None,
@@ -327,21 +208,20 @@ class MCPClient:
                             }
                         }]
                     })
-
-                    # 添加工具结果到消息
                     messages.append({
                         "role": "tool",
                         "content": json.dumps({"result": tool_result}, ensure_ascii=False),
                         "tool_call_id": tool['id']
                     })
 
-                # messages.extend(tool_calls_messages)
-                # messages.extend(tool_results_messages)
-
         return answer_content
 
     async def chat_loop(self):
-        """运行交互式聊天"""
+        """启动交互式聊天循环。
+
+        用户可在命令行中输入查询，模型将输出流式 reasoning 与回答。
+        输入 'quit' 即可退出程序。
+        """
         console.print("[bold magenta]>>> MCP客户端已启动！输入 [bold red]quit[/bold red] 退出 <<<[/bold magenta]")
 
         while True:
@@ -350,15 +230,10 @@ class MCPClient:
                 if query.lower() == 'quit':
                     break
                 response = await self.process_query(query)
-                console.print(
-                    f"\n\n[bold green][LLM Agent][/bold green] {response}\n"
-                )
+                console.print(f"\n\n[bold green][LLM Agent][/bold green] {response}\n")
             except Exception as e:
                 console.print(f"[bold black]>>> ERROR: 发生错误: {str(e)} <<<[/bold black]")
 
     async def clean(self):
-        """清理资源"""
+        """关闭所有异步上下文并清理资源。"""
         await self.exit_stack.aclose()
-
-
-
