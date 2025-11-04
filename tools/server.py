@@ -19,6 +19,7 @@ from dotenv import load_dotenv
 from mcp.server.fastmcp import FastMCP
 from deepke import deepke_ner, deepke_re, deepke_ae, deepke_ee
 from mukg import mukg_ea, mukg_lp, mukg_et, check_task
+from mge import mgex_judge, mgex_extract
 
 load_dotenv()
 
@@ -256,6 +257,35 @@ def mukg_check(task_id: str) -> str:
     """
     return check_task(task_id)
 
+@mcp.tool()
+def mg_judge(content: str) -> str:
+    """
+    文本内容类型判断，判断文本是否为医疗指南内容
+    Args:
+        content: 文本内容，该参数内容需要使用引号包裹，例如：\\"这是一条医疗指南内容\\"
+
+    Returns:
+        str: 是否为医疗指南内容,True或False
+
+    """
+    return mgex_judge(content)
+
+@mcp.tool()
+def mg_extract(content: str, type: bool) -> str:
+    """
+    医疗指南内容结构化抽取，在调用本方法前应先调用judge工具对文本进行判断
+    本工具需要调用大模型进行结构化抽取，耗时较长
+    Args:
+        content: 文本内容，该参数内容需要使用引号包裹，例如：\"这是一条医疗指南内容\"
+        type: 是否为医疗指南内容
+
+    Returns:
+        str: 结构化抽取结果，csv格式
+
+    """
+    if not type:
+        return "文本非医疗指南内容，无法进行结构化抽取"
+    return mgex_extract(content)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")

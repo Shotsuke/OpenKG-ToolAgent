@@ -35,6 +35,13 @@
 
 > 💡 参考：关于 muKG 的完整介绍和训练指导，请参考 [muKG官方仓库](https://github.com/nju-websoft/muKG)。
 
+#### Medical_Guideline_Extract
+
+`Medical_Guideline_Extract(MGE)` 是一个开源的医疗指南抽取工具，支持**医疗指南内容的结构化抽取**。
+> 💡参考：关于MGE的完整介绍和使用，请参考[MGE官方仓库](https://github.com/Dustzm/Medical_Guideline_Extract.git)。
+
+
+
 ## 2. 使用及配置
 
 > **DeepKE**
@@ -50,6 +57,11 @@
 > **muKG**
 > 
 > 考虑到这部分任务的输入输出并不适合直接阅读，因此训练模型和提前训练模型来测试都相当重要。本仓库一并撰写了训练和预测的调用接口。输出的模型存储在 `MUKG_PATH/output` 下，当然您也可以自备训练好的模型。
+
+> **MGE**
+> 
+> 请先准备好LLM模型服务，例如OpenAI的API服务，或者本地部署的模型服务。
+> 模型参数建议不少于30B，推荐使用Qwen3-30B-A3B-Thinking-2507
 
 ### DeepKE 配置
 
@@ -117,6 +129,8 @@ MUKG_PATH="~/muKG"
 CONDA_MUKG_PY="/home/user_name/anaconda3/envs/muKG/bin/"
 MUKG_OUTPUT_DIR="~/output/"
 ```
+### MGE配置
+请按照[官方仓库](https://github.com/Dustzm/Medical_Guideline_Extract.git)README要求配置环境参数。
 
 ### API_KEY
 
@@ -168,15 +182,17 @@ uv run run.py
 
 `OpenKG-ToolAgent` 当前提供以下任务接口：
 
-| 任务类型 | 接口名           | 功能概述                              |
-| -------- | ---------------- | ------------------------------------- |
-| NER      | `deepke_ner()`   | 常规全监督命名实体识别预测            |
-| RE       | `deepke_re()`    | 常规全监督关系抽取预测                |
-| AE       | `deepke_ae()`    | 常规全监督属性抽取预测                |
-| EE       | `deepke_ee()`    | 常规全监督事件检测及论元提取预测      |
-| EA       | `ea_modelname()` | 实体对齐，包含 `MTransE` 等四个模型   |
-| LP       | `lp_modelname()` | 链路预测，包含 `TransE` 等四个模型    |
+| 任务类型 | 接口名           | 功能概述                    |
+| -------- | ---------------- |-------------------------|
+| NER      | `deepke_ner()`   | 常规全监督命名实体识别预测           |
+| RE       | `deepke_re()`    | 常规全监督关系抽取预测             |
+| AE       | `deepke_ae()`    | 常规全监督属性抽取预测             |
+| EE       | `deepke_ee()`    | 常规全监督事件检测及论元提取预测        |
+| EA       | `ea_modelname()` | 实体对齐，包含 `MTransE` 等四个模型 |
+| LP       | `lp_modelname()` | 链路预测，包含 `TransE` 等四个模型  |
 | ET       | `et_transe_et()` | 实体类型识别，以 `TransE_ET` 模型运行 |
+| MGE      | `mge_judge()`    | 医疗指南文本判断                |
+| MGE      | `mge_extract()`  | 医疗指南结构化抽取               |
 
 ## 4. 注意事项
 
