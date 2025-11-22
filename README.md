@@ -115,6 +115,7 @@ conda create -n muKG python=3.8
 conda activate muKG
 conda install pytorch torchvision torchaudio cudatoolkit=11.3 -c pytorch
 conda install -c conda-forge python-igraph
+pip install -r requirements.txt
 pip install -U ray==1.12.0
 
 git clone https://github.com/nju-websoft/muKG.git muKG
@@ -158,6 +159,10 @@ cd OpenKG-ToolAgent
 uv run run.py
 ```
 
+### 作为服务器
+
+使用 `uvicorn server_api:app --reload --host 0.0.0.0 --port 8000` 来运行服务器
+
 ### 在 Cursor & Cline 中使用
 
 修改 `.cursor/mcp.json` 或 `cline_mcp_settings.json` ，或者在其他支持 mcp 服务的应用中添加类似的配置。
@@ -182,17 +187,17 @@ uv run run.py
 
 `OpenKG-ToolAgent` 当前提供以下任务接口：
 
-| 任务类型 | 接口名           | 功能概述                    |
-| -------- | ---------------- |-------------------------|
-| NER      | `deepke_ner()`   | 常规全监督命名实体识别预测           |
-| RE       | `deepke_re()`    | 常规全监督关系抽取预测             |
-| AE       | `deepke_ae()`    | 常规全监督属性抽取预测             |
-| EE       | `deepke_ee()`    | 常规全监督事件检测及论元提取预测        |
-| EA       | `ea_modelname()` | 实体对齐，包含 `MTransE` 等四个模型 |
-| LP       | `lp_modelname()` | 链路预测，包含 `TransE` 等四个模型  |
+| 任务类型 | 接口名           | 功能概述                              |
+| -------- | ---------------- | ------------------------------------- |
+| NER      | `deepke_ner()`   | 常规全监督命名实体识别预测            |
+| RE       | `deepke_re()`    | 常规全监督关系抽取预测                |
+| AE       | `deepke_ae()`    | 常规全监督属性抽取预测                |
+| EE       | `deepke_ee()`    | 常规全监督事件检测及论元提取预测      |
+| EA       | `ea_modelname()` | 实体对齐，包含 `MTransE` 等四个模型   |
+| LP       | `lp_modelname()` | 链路预测，包含 `TransE` 等四个模型    |
 | ET       | `et_transe_et()` | 实体类型识别，以 `TransE_ET` 模型运行 |
-| MGE      | `mge_judge()`    | 医疗指南文本判断                |
-| MGE      | `mge_extract()`  | 医疗指南结构化抽取               |
+| MGE      | `mge_judge()`    | 医疗指南文本判断                      |
+| MGE      | `mge_extract()`  | 医疗指南结构化抽取                    |
 
 ## 4. 注意事项
 

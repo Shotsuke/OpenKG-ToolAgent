@@ -105,7 +105,7 @@ def ea_mtranse(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> 
     """
     if not data.strip():
         data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/"
-    return mukg_ea("MTransE", train, data)
+    return mukg_ea("mtranse", train, data)
 
 
 @mcp.tool()
@@ -139,24 +139,25 @@ def ea_bootea(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> s
     """
     if not data.strip():
         data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/"
-    return mukg_ea("bootea", train, data)
+    # return mukg_ea("bootea", train, data)
+    return "本服务器安装 graph-tool 遇到困难，请不要使用该模型。"
 
 
-@mcp.tool()
-def ea_rsn4ea(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> str:
-    """
-    使用 muKG 集成的 RSN4EA 模型运行实体对齐（EA）任务。
+# @mcp.tool()
+# def ea_rsn4ea(train: bool, data: str = "OpenEA_dataset_v1.1/EN_FR_15K_V1/") -> str:
+#     """
+#     使用 muKG 集成的 RSN4EA 模型运行实体对齐（EA）任务。
 
-    Args:
-        train (bool): 若为 True，则执行训练与测试；若为 False，则跳过训练。
-        data (str, optional): 数据集路径，默认为 "OpenEA_dataset_v1.1/EN_FR_15K_V1/"。
+#     Args:
+#         train (bool): 若为 True，则执行训练与测试；若为 False，则跳过训练。
+#         data (str, optional): 数据集路径，默认为 "OpenEA_dataset_v1.1/EN_FR_15K_V1/"。
 
-    Returns:
-        str: 模型输出结果或错误信息。
-    """
-    if not data.strip():
-        data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/"
-    return mukg_ea("rsn4ea", train, data)
+#     Returns:
+#         str: 模型输出结果或错误信息。
+#     """
+#     if not data.strip():
+#         data = "OpenEA_dataset_v1.1/EN_FR_15K_V1/"
+#     return mukg_ea("rsn4ea", train, data)
 
 
 @mcp.tool()
