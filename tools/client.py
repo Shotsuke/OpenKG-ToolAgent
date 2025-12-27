@@ -18,9 +18,9 @@
 import asyncio
 import json
 import os
-from typing import Optional
+from typing import Optional, List, TypedDict, Annotated
 from contextlib import AsyncExitStack
-from openai import OpenAI
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 from mcp import ClientSession, StdioServerParameters
@@ -30,8 +30,16 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
+from langgraph.graph import StateGraph, END
+from langgraph.graph.message import add_messages
+
 console = Console()
 load_dotenv()
+
+
+class AgentState(TypedDict):
+    messages: Annotated[List[BaseMessage], add_messages]
 
 
 class MCPClient:
@@ -45,7 +53,7 @@ class MCPClient:
         opanai_api_key (str): DashScope 平台 API Key。
         base_url (str): DashScope 兼容 OpenAI SDK 的 API 地址。
         model (str): 使用的模型名称（默认为 Qwen Plus 2025）。
-        client (OpenAI): OpenAI 客户端对象，用于发送请求。
+        client (AsyncOpenAI): OpenAI 异步客户端对象，用于发送请求。
         session (Optional[ClientSession]): 当前 MCP 客户端会话对象。
     """
 
@@ -54,10 +62,11 @@ class MCPClient:
         self.exit_stack = AsyncExitStack()
         self.opanai_api_key = os.getenv("DASHSCOPE_API_KEY")
         self.base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-        self.model = "qwen-plus-2025-04-28"
-        self.client = OpenAI(api_key=self.opanai_api_key, base_url=self.base_url)
+        self.model = os.getenv("MODEL")
+        self.client = AsyncOpenAI(api_key=self.opanai_api_key, base_url=self.base_url)
         self.session: Optional[ClientSession] = None
-        self.exit_stack = AsyncExitStack()
+        self.tools_schema = []
+        self.app = None
 
     async def connect_to_server(self, server_script_path: str):
         """连接到 MCP 服务器并列出可用工具。
@@ -81,6 +90,19 @@ class MCPClient:
         response = await self.session.list_tools()
         tools = response.tools
 
+        # 转换工具定义供 OpenAI 使用
+        self.tools_schema = [{
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description,
+                "input_schema": tool.inputSchema
+            }
+        } for tool in tools]
+
+        # 构建 LangGraph
+        self.build_graph()
+
         console.print("[bold green]>>> ✅ 成功连接到MCP服务器 <<<[/bold green]")
         if tools:
             console.print("[bold cyan]可用工具列表:[/bold cyan]")
@@ -89,132 +111,173 @@ class MCPClient:
         else:
             console.print("[dim]（无可用工具）[/dim]")
 
+    def build_graph(self):
+        """构建 LangGraph 工作流"""
+        workflow = StateGraph(AgentState)
+
+        workflow.add_node("agent", self.call_model)
+        workflow.add_node("tools", self.call_tools)
+
+        workflow.set_entry_point("agent")
+
+        def should_continue(state: AgentState):
+            messages = state['messages']
+            last_message = messages[-1]
+            if last_message.tool_calls:
+                return "tools"
+            return END
+
+        workflow.add_conditional_edges(
+            "agent",
+            should_continue,
+            {
+                "tools": "tools",
+                END: END
+            }
+        )
+        workflow.add_edge("tools", "agent")
+
+        self.app = workflow.compile()
+
+    async def call_model(self, state: AgentState):
+        """调用大模型节点"""
+        messages = state['messages']
+        
+        # 将 LangChain 消息转换为 OpenAI 格式
+        openai_messages = []
+        for msg in messages:
+            if isinstance(msg, SystemMessage):
+                openai_messages.append({"role": "system", "content": msg.content})
+            elif isinstance(msg, HumanMessage):
+                openai_messages.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                m = {"role": "assistant", "content": msg.content}
+                if msg.tool_calls:
+                    m["tool_calls"] = [{
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": json.dumps(tc["args"])
+                        }
+                    } for tc in msg.tool_calls]
+                openai_messages.append(m)
+            elif isinstance(msg, ToolMessage):
+                openai_messages.append({
+                    "role": "tool", 
+                    "content": msg.content,
+                    "tool_call_id": msg.tool_call_id
+                })
+
+        console.print("\n[bold cyan]==== 思考过程 ====[/bold cyan]")
+        reasoning_content = ""
+        answer_content = ""
+        is_answering = False
+        tool_calls_accumulated = []
+        
+        stream_response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=openai_messages,
+            tools=self.tools_schema if self.tools_schema else None,
+            extra_body={"enable_thinking": True},
+            parallel_tool_calls=True,
+            stream=True
+        )
+
+        async for chunk in stream_response:
+            if not chunk.choices:
+                console.print(f"\n[dim]Usage: {chunk.usage}[/dim]")
+                continue
+
+            delta = chunk.choices[0].delta
+
+            # 输出模型思考过程
+            if hasattr(delta, 'reasoning_content') and delta.reasoning_content is not None:
+                reasoning_content += delta.reasoning_content
+                print(delta.reasoning_content, end="", flush=True)
+
+            # 输出最终回答与工具调用信息
+            else:
+                if not is_answering and (delta.content or delta.tool_calls):
+                    is_answering = True
+                    console.print("\n[bold cyan]==== 回复内容 ====[/bold cyan]")
+
+                if delta.content is not None:
+                    answer_content += delta.content
+                    print(delta.content, end="", flush=True)
+
+                if delta.tool_calls is not None:
+                    for tool_call in delta.tool_calls:
+                        index = tool_call.index
+                        while len(tool_calls_accumulated) <= index:
+                            tool_calls_accumulated.append({})
+
+                        if tool_call.id:
+                            tool_calls_accumulated[index]['id'] = tool_calls_accumulated[index].get('id', '') + tool_call.id
+                        if tool_call.function and tool_call.function.name:
+                            tool_calls_accumulated[index]['name'] = tool_calls_accumulated[index].get('name', '') + tool_call.function.name
+                        if tool_call.function and tool_call.function.arguments:
+                            tool_calls_accumulated[index]['arguments'] = tool_calls_accumulated[index].get('arguments', '') + tool_call.function.arguments
+
+        # 构建 LangChain 格式的 tool_calls
+        lc_tool_calls = []
+        for tc in tool_calls_accumulated:
+            lc_tool_calls.append({
+                "name": tc['name'],
+                "args": json.loads(tc['arguments']) if tc['arguments'] else {},
+                "id": tc['id']
+            })
+        
+        return {"messages": [AIMessage(content=answer_content, tool_calls=lc_tool_calls)]}
+
+    async def call_tools(self, state: AgentState):
+        """执行工具调用节点"""
+        last_message = state['messages'][-1]
+        tool_calls = last_message.tool_calls
+        
+        console.print("\n[bold cyan]==== 工具调用 ====[/bold cyan]")
+        results = []
+        
+        for tc in tool_calls:
+            tool_name = tc['name']
+            tool_args = tc['args']
+            tool_id = tc['id']
+            
+            result = await self.session.call_tool(tool_name, tool_args)
+            tool_result = result.content[0].text if result.content else "无结果"
+            
+            console.print(f"[bold yellow]工具名称:[/bold yellow] {tool_name}")
+            console.print(f"[bold magenta]调用参数:[/bold magenta] {json.dumps(tool_args, ensure_ascii=False, indent=2)}")
+            console.print(f"[bold green]返回结果:[/bold green] {tool_result}\n")
+            
+            results.append(ToolMessage(content=tool_result, tool_call_id=tool_id))
+            
+        return {"messages": results}
+
     async def process_query(self, query: str) -> str:
-        """使用大模型处理查询并自动调用 MCP 工具。
+        """使用 LangGraph 处理查询并自动调用 MCP 工具。
 
         Args:
             query (str): 用户输入的自然语言查询。
 
         Returns:
             str: 模型的最终自然语言回复。
-
-        Notes:
-            - 本函数在推理阶段会实时输出「思考过程」与「回复内容」。
-            - 当检测到模型生成的 tool_calls 时，会自动调用 MCP 工具。
-            - 工具返回结果将写回消息上下文，用于下一轮模型推理。
         """
-        messages = [
-            {
-                "role": "system",
-                "content": """你是一个很有帮助的助手。
+        system_prompt = """你是一个很有帮助的助手。
                 对于能够调用工具函数并行解决的问题，你可以一次性给出需要的函数调用。
                 如果你认为某个问题可以被你很轻松地解决，不需要经过工具调用，你也可以选择直接跳过。
                 如果你遇到了明显需要分步调用工具函数的问题，请你逐步来，不必一口气解决。
                 在这种情况下，你会被多次调用，你的上一次对工具的调用会被记录，然后输入给你的下一次调用，
                 直到不需要调用工具，最终再来输出回答。
                 这份工具调用将严格按照时间顺序来记录，方便你分析前后顺序。
-                请以友好的语气回答问题。""",
-            },
-            {"role": "user", "content": query}
-        ]
-
-        response = await self.session.list_tools()
-        available_tools = [{
-            "type": "function",
-            "function": {
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.inputSchema
-            }
-        } for tool in response.tools]
-
-        answer_content = ""
-
-        while not answer_content:
-            console.print("\n[bold cyan]==== 思考过程 ====[/bold cyan]")
-            reasoning_content = ""
-            is_answering = False
-            tool_info = []
-
-            stream_response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                tools=available_tools,
-                extra_body={"enable_thinking": True},
-                parallel_tool_calls=True,
-                stream=True
-            )
-
-            for chunk in stream_response:
-                if not chunk.choices:
-                    console.print(f"\n[dim]Usage: {chunk.usage}[/dim]")
-                    continue
-
-                delta = chunk.choices[0].delta
-
-                # 输出模型思考过程
-                if hasattr(delta, 'reasoning_content') and delta.reasoning_content is not None:
-                    reasoning_content += delta.reasoning_content
-                    print(delta.reasoning_content, end="", flush=True)
-
-                # 输出最终回答与工具调用信息
-                else:
-                    if not is_answering:
-                        is_answering = True
-                        console.print("\n[bold cyan]==== 回复内容 ====[/bold cyan]")
-
-                    if delta.content is not None:
-                        answer_content += delta.content
-                        print(delta.content, end="", flush=True)
-
-                    if delta.tool_calls is not None:
-                        for tool_call in delta.tool_calls:
-                            index = tool_call.index
-                            while len(tool_info) <= index:
-                                tool_info.append({})
-
-                            if tool_call.id:
-                                tool_info[index]['id'] = tool_info[index].get('id', '') + tool_call.id
-                            if tool_call.function and tool_call.function.name:
-                                tool_info[index]['name'] = tool_info[index].get('name', '') + tool_call.function.name
-                            if tool_call.function and tool_call.function.arguments:
-                                tool_info[index]['arguments'] = tool_info[index].get('arguments', '') + tool_call.function.arguments
-
-            # 执行工具调用
-            if tool_info:
-                console.print("\n[bold cyan]==== 工具调用 ====[/bold cyan]")
-                for tool in tool_info:
-                    tool_name = tool['name']
-                    tool_args = json.loads(tool['arguments']) if tool['arguments'] else {}
-
-                    result = await self.session.call_tool(tool_name, tool_args)
-                    tool_result = result.content[0].text if result.content else "无结果"
-                    tool['result'] = tool_result
-
-                    console.print(f"[bold yellow]工具名称:[/bold yellow] {tool_name}")
-                    console.print(f"[bold magenta]调用参数:[/bold magenta] {json.dumps(tool_args, ensure_ascii=False, indent=2)}")
-                    console.print(f"[bold green]返回结果:[/bold green] {tool_result}\n")
-
-                    # 将调用及结果添加回对话上下文
-                    messages.append({
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [{
-                            "id": tool['id'],
-                            "type": "function",
-                            "function": {
-                                "name": tool_name,
-                                "arguments": json.dumps(tool_args, ensure_ascii=False)
-                            }
-                        }]
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "content": json.dumps({"result": tool_result}, ensure_ascii=False),
-                        "tool_call_id": tool['id']
-                    })
-
-        return answer_content
+                请以友好的语气回答问题。"""
+        
+        inputs = {"messages": [SystemMessage(content=system_prompt), HumanMessage(content=query)]}
+        
+        # 执行图
+        final_state = await self.app.ainvoke(inputs)
+        
+        return final_state['messages'][-1].content
 
     async def chat_loop(self):
         """启动交互式聊天循环。

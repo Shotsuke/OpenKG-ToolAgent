@@ -147,7 +147,7 @@ pip install uv
 cd OpenKG-ToolAgent
 uv venv
 source .venv/bin/activate
-uv add "mcp[cli]" httpx openai pyyaml
+uv add "mcp[cli]" httpx openai pyyaml langchain langgraph langchain-community langgraph-cli langchain-mcp-adapters ddgs requests
 ```
 
 ### 测试运行
@@ -161,7 +161,7 @@ uv run run.py
 
 ### 作为服务器
 
-使用 `uvicorn server_api:app --reload --host 0.0.0.0 --port 8000` 来运行服务器
+使用 `uvicorn server_api:app --reload --host 0.0.0.0 --port 8000` 来运行服务器。
 
 ### 在 Cursor & Cline 中使用
 
@@ -202,4 +202,4 @@ uv run run.py
 ## 4. 注意事项
 
 - 该 MCP 服务目前仍然处于早期阶段，相关能力正在完善中。
-- 当前默认适配 Linux 路径，Windows 需修改对应路径。
+- 当前默认适配 Linux ,还未适配 Windows。
