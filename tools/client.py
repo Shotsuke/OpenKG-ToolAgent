@@ -243,8 +243,17 @@ class MCPClient:
             tool_args = tc['args']
             tool_id = tc['id']
             
-            result = await self.session.call_tool(tool_name, tool_args)
-            tool_result = result.content[0].text if result.content else "无结果"
+            try:
+                result = await self.session.call_tool(tool_name, tool_args)
+                
+                # 检查工具是否返回错误状态
+                if hasattr(result, 'isError') and result.isError:
+                    error_msg = result.content[0].text if result.content else "Unknown error"
+                    tool_result = f"Error executing tool: {error_msg}"
+                else:
+                    tool_result = result.content[0].text if result.content else "无结果"
+            except Exception as e:
+                tool_result = f"Exception during tool call: {str(e)}"
             
             console.print(f"[bold yellow]工具名称:[/bold yellow] {tool_name}")
             console.print(f"[bold magenta]调用参数:[/bold magenta] {json.dumps(tool_args, ensure_ascii=False, indent=2)}")
@@ -270,14 +279,17 @@ class MCPClient:
                 在这种情况下，你会被多次调用，你的上一次对工具的调用会被记录，然后输入给你的下一次调用，
                 直到不需要调用工具，最终再来输出回答。
                 这份工具调用将严格按照时间顺序来记录，方便你分析前后顺序。
+                如果工具调用失败，请告知用户无法完成任务，报告错误信息就行。切勿使用相同的参数重复调用失败的工具。
                 请以友好的语气回答问题。"""
         
         inputs = {"messages": [SystemMessage(content=system_prompt), HumanMessage(content=query)]}
         
-        # 执行图
-        final_state = await self.app.ainvoke(inputs)
-        
-        return final_state['messages'][-1].content
+        # 执行图，设置递归限制防止死循环
+        try:
+            final_state = await self.app.ainvoke(inputs, config={"recursion_limit": 15})
+            return final_state['messages'][-1].content
+        except Exception as e:
+            return f"执行过程中止（可能是由于达到最大重试次数或发生错误）: {str(e)}"
 
     async def chat_loop(self):
         """启动交互式聊天循环。
