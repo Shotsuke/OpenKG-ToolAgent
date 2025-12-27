@@ -20,7 +20,7 @@ from mcp.server.fastmcp import FastMCP
 from deepke import deepke_ner, deepke_re, deepke_ae, deepke_ee
 from mukg import mukg_ea, mukg_lp, mukg_et, check_task
 from mge import mgex_judge, mgex_extract
-
+from file_processors import dispatch_tool
 load_dotenv()
 
 mcp = FastMCP("OpenKG")
@@ -288,5 +288,21 @@ def mg_extract(content: str, type: bool) -> str:
         return "文本非医疗指南内容，无法进行结构化抽取"
     return mgex_extract(content)
 
+@mcp.tool()
+def process_file(tool: str, input_path: str, task: str = "standard") -> str:
+    """
+    使用指定工具处理一个文件（目前支持 ae / ner）
+
+    Args:
+        tool: 工具名称，可选 ae / ner
+        input_path: 输入文件路径，例如 "~/data-origin/data.csv"
+        task: 任务类型，默认 standard
+
+    Returns:
+        str: 输出文件路径
+    """
+    return dispatch_tool(tool, input_path, task)
+
 if __name__ == "__main__":
     mcp.run(transport="stdio")
+    
