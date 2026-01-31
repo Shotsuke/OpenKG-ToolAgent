@@ -20,7 +20,7 @@ from mcp.server.fastmcp import FastMCP
 from deepke import deepke_ner, deepke_re, deepke_ae, deepke_ee
 from mukg import mukg_ea, mukg_lp, mukg_et, check_task
 from mge import mgex_judge, mgex_extract
-from file_processors import dispatch_tool
+from file_processors import dispatch_tool, ner_bio_to_re_input, ner_bio_to_ae_input  
 load_dotenv()
 
 mcp = FastMCP("OpenKG")
@@ -291,10 +291,10 @@ def mg_extract(content: str, type: bool) -> str:
 @mcp.tool()
 def process_file(tool: str, input_path: str, task: str = "standard") -> str:
     """
-    使用指定工具处理一个文件（目前支持 ae / ner）
-
+    使用指定工具处理一个文件，目前支持 ae / ner / re, 其中 ner 结果为 BIO 格式，re与ae结果为三元组格式
+    ae，ner，re工具均调用 DeepKE 实现，其输入数据格式参考注册的re，ae，ner工具
     Args:
-        tool: 工具名称，可选 ae / ner
+        tool: 工具名称，可选 ae / ner / re
         input_path: 输入文件路径，例如 "~/data-origin/data.csv"
         task: 任务类型，默认 standard
 
@@ -302,6 +302,32 @@ def process_file(tool: str, input_path: str, task: str = "standard") -> str:
         str: 输出文件路径
     """
     return dispatch_tool(tool, input_path, task)
+
+@mcp.tool()
+def ner_bio_to_re(input_path: str) -> str:
+    """
+    将NER BIO格式结果映射到对应的实体类型，并转换为RE输入格式
+
+    Args:
+        input_path: NER结果路径
+
+    Returns:
+        str: 输出文件路径
+    """
+    return ner_bio_to_re_input(input_path)
+
+@mcp.tool()
+def ner_bio_to_ae(input_path: str) -> str:
+    """
+    将NER BIO格式结果映射到对应的实体类型，并转换为AE输入格式
+
+    Args:
+        input_path: NER结果路径
+
+    Returns:
+        str: 输出文件路径
+    """
+    return ner_bio_to_ae_input(input_path)
 
 if __name__ == "__main__":
     mcp.run(transport="stdio")
